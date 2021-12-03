@@ -1,113 +1,126 @@
 #include "xrsr.h"
 
-static XRSR128_MAT skips[128];
+static XRSRMAT skips[128];
 
-static uint64_t rol64(uint64_t u, int n)
+static uint64_t mix64(uint64_t u64)
 {
-	return u << n | u >> (64 - n);
+	u64 = (u64 ^ u64 >> 30) * XRSR_MIX1;
+	u64 = (u64 ^ u64 >> 27) * XRSR_MIX2;
+	return u64 ^ u64 >> 31;
 }
 
-static int get128(XRSR128 *seed, int n)
+static uint64_t fix64(uint64_t u64)
 {
-	if (n < 64)
-		return (seed->lo >> n) & 1;
-	else
-		return (seed->hi >> (n - 64)) & 1;
+	u64 = (u64 ^ u64 >> 31 ^ u64 >> 62) * XRSR_MIX2_INVERSE;
+	u64 = (u64 ^ u64 >> 27 ^ u64 >> 54) * XRSR_MIX1_INVERSE;
+	return u64 ^ u64 >> 30 ^ u64 >> 60;
 }
 
-static void set128(XRSR128 *seed, int n)
+static uint64_t rol64(uint64_t u64, int n)
 {
-	if (n < 64)
-		seed->lo |= (uint64_t) 1 << n;
-	else
-		seed->hi |= (uint64_t) 1 << (n - 64);
+	return u64 << n | u64 >> (64 - n);
 }
 
-void xrsr128_new(XRSR128 *seed)
+void xrsr128_init(XRSR128 *rng, uint64_t lo, uint64_t hi)
 {
-	seed->hi = 0;
-	seed->lo = 0;
+	rng->lo = lo;
+	rng->hi = hi;
 }
 
-void xrsr128_next(XRSR128 *seed)
+void xrsr128_seed(XRSR128 *rng, uint64_t seed)
 {
-	seed->hi = seed->hi ^ seed->lo;
-	seed->lo = rol64(seed->lo, 49) ^ seed->hi ^ (seed->hi << 21);
-	seed->hi = rol64(seed->hi, 28);
+	rng->lo = mix64(seed ^ XRSR_SILVER_RATIO);
+	rng->hi = mix64(seed + XRSR_GOLDEN_RATIO);
 }
 
-void xrsr128_prev(XRSR128 *seed)
+void xrsr128_next(XRSR128 *rng)
 {
-	seed->hi = rol64(seed->hi, 36);
-	seed->lo = rol64(seed->lo ^ seed->hi ^ (seed->hi << 21), 15);
-	seed->hi = seed->hi ^ seed->lo;
+	rng->hi = rng->hi ^ rng->lo;
+	rng->lo = rol64(rng->lo, 49) ^ rng->hi ^ (rng->hi << 21);
+	rng->hi = rol64(rng->hi, 28);
 }
 
-void xrsr128_comb(XRSR128 *seed, XRSR128_MAT *other)
+void xrsr128_prev(XRSR128 *rng)
 {
-	int i;
-	XRSR128 result;
-	xrsr128_new(&result);
-	for (i = 0; i < 128; i++) {
-		uint64_t mask = (uint64_t) 0 - get128(seed, i);
-		result.hi ^= other->elem[i].hi & mask;
-		result.lo ^= other->elem[i].lo & mask;
+	rng->hi = rol64(rng->hi, 36);
+	rng->lo = rol64(rng->lo ^ rng->hi ^ (rng->hi << 21), 15);
+	rng->hi = rng->hi ^ rng->lo;
+}
+
+void xrsr128_comb(XRSR128 *rng, XRSRMAT *other)
+{
+	XRSR128 tmp = *rng;
+	xrsr128_init(rng, 0, 0);
+	for (int i = 0; i < 64; i++) {
+		uint64_t mask = -(tmp.lo >> i & 1);
+		rng->hi ^= other->elem[i].hi & mask;
+		rng->lo ^= other->elem[i].lo & mask;
 	}
-	*seed = result;
-}
-
-void xrsr128_skip(XRSR128 *seed, XRSR128 *other)
-{
-	int i;
-	for (i = 0; i < 128; i++)
-		if (get128(other, i))
-			xrsr128_comb(seed, &skips[i]);
-}
-
-void xrsr128_mat_new(XRSR128_MAT *mat)
-{
-	int i;
-	for (i = 0; i < 128; i++) {
-		xrsr128_new(&mat->elem[i]);
-		set128(&mat->elem[i], i);
+	for (int j = 0; j < 64; j++) {
+		uint64_t mask = -(tmp.hi >> j & 1);
+		rng->hi ^= other->elem[j + 64].hi & mask;
+		rng->lo ^= other->elem[j + 64].lo & mask;
 	}
 }
 
-void xrsr128_mat_next(XRSR128_MAT *mat)
+void xrsr128_skip(XRSR128 *rng, XRSR128 *other)
 {
-	int i;
-	for (i = 0; i < 128; i++)
+	for (int i = 0; i < 64; i++)
+		if (other->lo & 1ULL << i)
+			xrsr128_comb(rng, &skips[i]);
+	for (int j = 0; j < 64; j++)
+		if (other->hi & 1ULL << j)
+			xrsr128_comb(rng, &skips[j + 64]);
+}
+
+void xrsrmat_init(XRSRMAT *mat)
+{
+	for (int i = 0; i < 64; i++)
+		xrsr128_init(&mat->elem[i], 1ULL << i, 0);
+	for (int j = 0; j < 64; j++)
+		xrsr128_init(&mat->elem[j + 64], 0, 1ULL << j);
+}
+
+void xrsrmat_next(XRSRMAT *mat)
+{
+	for (int i = 0; i < 128; i++)
 		xrsr128_next(&mat->elem[i]);
 }
 
-void xrsr128_mat_prev(XRSR128_MAT *mat)
+void xrsrmat_prev(XRSRMAT *mat)
 {
-	int i;
-	for (i = 0; i < 128; i++)
+	for (int i = 0; i < 128; i++)
 		xrsr128_prev(&mat->elem[i]);
 }
 
-void xrsr128_mat_comb(XRSR128_MAT *mat, XRSR128_MAT *other)
+void xrsrmat_comb(XRSRMAT *mat, XRSRMAT *other)
 {
-	int i;
-	for (i = 0; i < 128; i++)
+	for (int i = 0; i < 128; i++)
 		xrsr128_comb(&mat->elem[i], other);
 }
 
-void xrsr128_mat_skip(XRSR128_MAT *mat, XRSR128 *other)
+void xrsrmat_skip(XRSRMAT *mat, XRSR128 *other)
 {
-	int i;
-	for (i = 0; i < 128; i++)
+	for (int i = 0; i < 128; i++)
 		xrsr128_skip(&mat->elem[i], other);
 }
 
-void xrsr128_init(void)
+void xrsr_init(void)
 {
-	int i;
-	xrsr128_mat_new(&skips[0]);
-	xrsr128_mat_next(&skips[0]);
-	for (i = 1; i < 128; i++) {
+	xrsrmat_init(&skips[0]);
+	xrsrmat_next(&skips[0]);
+	for (int i = 1; i < 128; i++) {
 		skips[i] = skips[i - 1];
-		xrsr128_mat_comb(&skips[i], &skips[i - 1]);
+		xrsrmat_comb(&skips[i], &skips[i - 1]);
 	}
+}
+
+uint64_t xrsr_lo2s(uint64_t lo)
+{
+	return fix64(lo) ^ XRSR_SILVER_RATIO;
+}
+
+uint64_t xrsr_hi2s(uint64_t hi)
+{
+	return fix64(hi) - XRSR_GOLDEN_RATIO;
 }

@@ -1,21 +1,25 @@
 #include "xrsr.h"
 #include <stdio.h>
+#include <inttypes.h>
 
 int main(void)
 {
-	XRSR128 seed;
-	XRSR128 skip;
-	XRSR128_MAT skip_mat;
+	XRSR128 rng;
+	XRSRMAT mat;
+	xrsr_init();
 
-	seed.hi = 0;
-	seed.lo = 10;
-	skip.hi = 0;
-	skip.lo = 10;
+	xrsr128_init(&rng, 10, 0);
+	xrsrmat_init(&mat);
+	xrsrmat_skip(&mat, &rng);
+	xrsr128_init(&rng, 10, 0);
+	xrsr128_comb(&rng, &mat);
 
-	xrsr128_init();
-	xrsr128_mat_new(&skip_mat);
-	xrsr128_mat_skip(&skip_mat, &skip);
-	xrsr128_comb(&seed, &skip_mat);
-	printf("%016llx%016llx", seed.hi, seed.lo);
+	printf("%016" PRIx64, rng.hi);
+	printf("%016" PRIx64, rng.lo);
+	printf("\n");
+
+	xrsr128_seed(&rng, 123456);
+	printf("%" PRIu64 "\n", xrsr_lo2s(rng.lo));
+	printf("%" PRIu64 "\n", xrsr_hi2s(rng.hi));
 	return 0;
 }
