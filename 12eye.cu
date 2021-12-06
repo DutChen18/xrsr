@@ -22,7 +22,7 @@ __global__ void filter(uint64_t start, uint64_t size)
 		xrsr_seed(&rng, start + i);
 		xrsr128_comb(&rng, &skip760);
 		for (int j = 0; j < 12; j++)
-			if (xrsr_long(&rng) >= 1844674847175606272ULL)
+			if (xrsr_long(&rng) < 16602070326045573120ULL)
 				goto end;
 		results[atomicAdd((unsigned long long *) &count, 1)] = start + i;
 	end:
