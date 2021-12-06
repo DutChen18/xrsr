@@ -1,4 +1,5 @@
 #include "xrsr.h"
+#include "skip.cu"
 #include <stdint.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -8,7 +9,6 @@
 #define GRID_SIZE ((uint64_t) 1 << 32)
 #endif
 
-__constant__ XRSRMAT skip760;
 __managed__ uint64_t results[256];
 __managed__ uint64_t count;
 
@@ -20,7 +20,7 @@ __global__ void filter(uint64_t start, uint64_t size)
 	while (i < size) {
 		XRSR128 rng;
 		xrsr_seed(&rng, start + i);
-		xrsr128_comb(&rng, &skip760);
+		skip(&rng);
 		for (int j = 0; j < 12; j++)
 			if (xrsr_long(&rng) < 16602070326045573120ULL)
 				goto end;
@@ -30,23 +30,10 @@ __global__ void filter(uint64_t start, uint64_t size)
 	}
 }
 
-void init(void)
-{
-	XRSRMAT mat;
-	XRSR128 tmp;
-
-	xrsr_init();
-	xrsr128_init(&tmp, 760, 0);
-	xrsrmat_init(&mat);
-	xrsrmat_skip(&mat, &tmp);
-
-	cudaMemcpyToSymbol(skip760, &mat, sizeof(mat), 0, cudaMemcpyHostToDevice);
-}
-
 void run(uint64_t start, uint64_t size)
 {
 	uint64_t blockSize = 256;
-	uint64_t numBlocks = (size + blockSize - 1) / blockSize;
+	uint64_t numBlocks = (size + blockSize - 1) / blockSize / 16;
 
 	count = 0;
 	filter<<<numBlocks, blockSize>>>(start, size);
@@ -58,7 +45,6 @@ void run(uint64_t start, uint64_t size)
 
 int main(int argc, char **argv)
 {
-	init();
 	uint64_t i = 0;
 	clock_t start = clock();
 	do {
