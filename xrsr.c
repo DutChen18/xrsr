@@ -113,23 +113,24 @@ void xrsr_init(void)
 
 XRSRDEV void xrsr_seed(XRSR128 *rng, uint64_t seed)
 {
-	rng->lo = mix64(seed ^ XRSR_SILVER_RATIO);
+	seed ^= XRSR_SILVER_RATIO;
+	rng->lo = mix64(seed);
 	rng->hi = mix64(seed + XRSR_GOLDEN_RATIO);
 }
 
 XRSRDEV uint64_t xrsr_long(XRSR128 *rng)
 {
-	uint64_t res = rol64(rng->lo + rng->hi, 17) ^ rng->lo;
+	uint64_t res = rol64(rng->lo + rng->hi, 17) + rng->lo;
 	xrsr128_next(rng);
 	return res;
 }
 
 XRSRDEV uint64_t xrsr_lo2s(uint64_t lo)
 {
-	return fix64(lo) ^ XRSR_SILVER_RATIO;
+	return XRSR_SILVER_RATIO ^ fix64(lo);
 }
 
 XRSRDEV uint64_t xrsr_hi2s(uint64_t hi)
 {
-	return fix64(hi) - XRSR_GOLDEN_RATIO;
+	return XRSR_SILVER_RATIO ^ fix64(hi) - XRSR_GOLDEN_RATIO;
 }
